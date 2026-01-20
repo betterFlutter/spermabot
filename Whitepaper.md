@@ -294,13 +294,14 @@ prio(u)=\frac{\ln(1+t_u)}{1+\ln(1+p_u)} - 0.3\,r_u
 ---
 ## How to run:
 
+В терминале: `pip install -r requirements.txt`
+
 Создать .env в корне со строчками:
 `BOT_TOKEN=...`
 `ADMIN_CHAT_ID=-100...`
 `CHANNEL_ID=-100...`
 `SUPER_ADMIN_ID=...`
 `TZ_OFFSET_HOURS=3 ## по умолчанию 3 для московского времени`
-
 
 В терминале: `папка_с_ботом/.venv/Scripts/Activate.ps1`
 
