@@ -301,4 +301,7 @@ prio(u)=\frac{\ln(1+t_u)}{1+\ln(1+p_u)} - 0.3\,r_u
 `SUPER_ADMIN_ID=...`
 `TZ_OFFSET_HOURS=3 ## по умолчанию 3 для московского времени`
 
+
+В терминале: `папка_с_ботом/.venv/Scripts/Activate.ps1`
+
 В терминале: `python bot.py`
