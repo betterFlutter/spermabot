@@ -294,6 +294,8 @@ $$
 ---
 ## How to run:
 
+В терминале: `pip install -r requirements.txt`
+
 Создать .env в корне со строчками:
 `BOT_TOKEN=...`
 `ADMIN_CHAT_ID=-100...`
@@ -301,8 +303,9 @@ $$
 `SUPER_ADMIN_ID=...`
 `TZ_OFFSET_HOURS=3 ## по умолчанию 3 для московского времени`
 
-В терминале: `python bot.py`
+В терминале: `папка_с_ботом/.venv/Scripts/Activate.ps1`
 
+В терминале: `python bot.py`
 
 
 
