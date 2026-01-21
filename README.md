@@ -307,6 +307,9 @@ $$
 
 В терминале: `python bot.py`
 
+Если нет ffmpeg/ffprobe: `winget install Gyan.FFmpeg`
+Через choco: `choco install ffmpeg`
+
 
 
 
