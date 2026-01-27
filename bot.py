@@ -165,10 +165,10 @@ TELETHON_SESSION_STRING             = os.getenv("TELETHON_SESSION_STRING")
 
 MAIN_MENU = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="📮Предложить пост")],
-        [KeyboardButton(text="🌚Изменить хэштег")],
-        [KeyboardButton(text="🏆Топ")],
-        [KeyboardButton(text="ℹ️О боте")],
+        [KeyboardButton(text="📨 Предложить пост")],
+        [KeyboardButton(text="✏️ Изменить хэштег")],
+        [KeyboardButton(text="🏆 Топ")],
+        [KeyboardButton(text="ℹ️ О боте")],
     ],
     resize_keyboard=True,
 )
@@ -772,6 +772,10 @@ class Database:
         await self.db.commit()
         return await self.count_ban_votes(user_id)
 
+    async def clear_ban_votes(self, user_id: int):
+        await self.db.execute("DELETE FROM ban_votes WHERE user_id=?", (user_id,))
+        await self.db.commit()
+
     async def count_ban_votes(self, user_id: int) -> int:
         cur = await self.db.execute("SELECT COUNT(*) AS c FROM ban_votes WHERE user_id=?", (user_id,))
         row = await cur.fetchone()
@@ -783,6 +787,19 @@ class Database:
         )
         row = await cur.fetchone()
         return row["c"] if row else 0
+
+    async def list_posts_by_user(self, user_id: int, limit: int = 20) -> List[aiosqlite.Row]:
+        cur = await self.db.execute(
+            """
+            SELECT id, status, caption, scheduled_at, published_at, created_at, approved_at
+            FROM posts
+            WHERE user_id=?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit)),
+        )
+        return await cur.fetchall()
 
     async def due_posts(self, now: datetime):
         cur = await self.db.execute(
@@ -962,7 +979,7 @@ def build_inline_keyboard(post_id: int, likes: int, dislikes: int, ban_count: in
                 InlineKeyboardButton(text=f"👎 {dislikes}", callback_data=f"vote:{post_id}:dislike"),
             ],
             [InlineKeyboardButton(text=f"🚫 {ban_count}", callback_data=f"ban:{post_id}")],
-            [InlineKeyboardButton(text="✏ Причина", callback_data=f"reason:{post_id}")],
+            [InlineKeyboardButton(text="ℹ️ Причина", callback_data=f"reason:{post_id}")],
         ]
     )
 
@@ -4249,27 +4266,83 @@ async def superadmin_help(message: Message):
     )
 
 @dp.message(Command(commands=["top"]))
-@dp.message(F.text == "🏆Топ")
+@dp.message(F.text == "🏆 Топ")
 async def show_top(message: Message):
     # в группах разрешаем команду топ на другие пох
     if message.chat.type != "private":
         month_rows = await db.top_hashtags(days=30, limit=10)
         all_rows = await db.top_hashtags(days=None, limit=10)
-        text = format_top_block("🗿 ТОП за 30 дней 🗿", month_rows) + "\n\n" + format_top_block("🗿 ТОП за всё время 🗿", all_rows)
+        text = format_top_block("🏆 ТОП за 30 дней 🏆", month_rows) + "\n\n" + format_top_block("🏆 ТОП за всё время 🏆", all_rows)
         await message.answer(text)
         return
     month_rows = await db.top_hashtags(days=30, limit=10)
     all_rows = await db.top_hashtags(days=None, limit=10)
-    text = format_top_block("🗿 ТОП за 30 дней 🗿", month_rows) + "\n\n" + format_top_block("🗿 ТОП за всё время 🗿", all_rows)
+    text = format_top_block("🏆 ТОП за 30 дней 🏆", month_rows) + "\n\n" + format_top_block("🏆 ТОП за всё время 🏆", all_rows)
     await message.answer(text, reply_markup=MAIN_MENU)
 
-@dp.message(F.text == "ℹ️О боте")
+@dp.message(Command(commands=["myposts"]))
+async def my_posts(message: Message):
+    if message.chat.type != "private":
+        return
+    user = await db.get_user_by_tg(message.from_user.id)
+    if not user:
+        await message.answer("Нажмите /start для начала.", reply_markup=MAIN_MENU)
+        return
+    rows = await db.list_posts_by_user(user["id"], limit=20)
+    if not rows:
+        await message.answer("Вы ещё не отправляли посты.", reply_markup=MAIN_MENU)
+        return
+
+    def _status_label(status: str) -> str:
+        return {
+            "pending": "На модерации",
+            "scheduled": "Запланирован",
+            "published": "Опубликован",
+            "rejected": "Отклонён",
+        }.get(status, status)
+
+    lines = []
+    for r in rows:
+        status = r["status"]
+        label = _status_label(status)
+        ts_raw = r["published_at"] or r["scheduled_at"] or r["approved_at"] or r["created_at"]
+        ts_text = "время неизвестно"
+        if ts_raw:
+            try:
+                dt = datetime.fromisoformat(ts_raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=TZ)
+                ts_text = format_time(dt)
+            except Exception:
+                ts_text = ts_raw
+        if status == "scheduled":
+            time_label = "Запланирован на"
+        elif status == "published":
+            time_label = "Опубликован"
+        elif status == "pending":
+            time_label = "Отправлен"
+        elif status == "rejected":
+            time_label = "Отклонён"
+        else:
+            time_label = label
+        caption_raw = (r["caption"] or "").strip()
+        if len(caption_raw) > 80:
+            caption_raw = caption_raw[:77] + "..."
+        caption_part = "\n  " + escape(caption_raw) if caption_raw else ""
+        lines.append(
+            f"- #id{r['id']} - {label}\n"
+            f"  {time_label}: {ts_text}{caption_part}"
+        )
+    text = "Ваши последние 20 постов:\n\n" + "\n\n".join(lines)
+    await message.answer(text, reply_markup=MAIN_MENU)
+
+@dp.message(F.text == "ℹ️ О боте")
 async def about_bot(message: Message):
     if message.chat.type != "private":
         return
     await message.answer("Бот написан с нуля. Вдохновлённый ботом @SilverCumBot", reply_markup=MAIN_MENU)
 
-@dp.message(F.text == "🌚Изменить хэштег")
+@dp.message(F.text == "✏️ Изменить хэштег")
 async def start_change_hashtag(message: Message, state: FSMContext):
     if message.chat.type != "private":
         return
@@ -4355,9 +4428,9 @@ async def confirm_hashtag(callback: CallbackQuery, state: FSMContext):
         return
     await db.set_hashtag(callback.from_user.id, new_tag)
     await state.clear()
-    await callback.message.edit_text("✅Спасибо, что придумали персональный хэштег", reply_markup=None)
+    await callback.message.edit_text("?Спасибо, что придумали персональный хэштег", reply_markup=None)
     await callback.message.answer("Главное меню:", reply_markup=MAIN_MENU)
-@dp.message(F.text == "📮Предложить пост")
+@dp.message(F.text == "📮 Предложить пост")
 async def propose_post(message: Message, state: FSMContext):
     if message.chat.type != "private":
         return
@@ -4369,13 +4442,16 @@ async def propose_post(message: Message, state: FSMContext):
         await message.answer("Сначала задайте хэштег.", reply_markup=MAIN_MENU)
         return
     if user["banned"]:
-        await message.answer("Вы забанены. Для вопросов — @p0st_shit")
+        await message.answer("Вы забанены. Для вопросов - @p0st_shit")
         return
-    pending = await db.get_pending_count(user["id"])
-    if pending >= MAX_PENDING_PER_USER:
-        await message.answer("Слишком много заявок. Подождите пока модерация разберётся.")
-        return
+    is_admin_user = await is_admin(message.from_user.id)
+    if not is_admin_user:
+        pending = await db.get_pending_count(user["id"])
+        if pending >= MAX_PENDING_PER_USER:
+            await message.answer("Слишком много заявок. Подождите пока модерация разберётся.")
+            return
     await state.set_state(SubmissionFlow.waiting_content)
+    await state.update_data(is_admin=is_admin_user)
     await message.answer(
         "Отправьте один пост (текст, фото, видео или альбом). После отправки я уточню подтверждение.",
         reply_markup=ReplyKeyboardRemove(),
@@ -4416,6 +4492,9 @@ async def confirm_send(callback: CallbackQuery, state: FSMContext):
         return
     data = await state.get_data()
     draft_raw = data.get("draft")
+    is_admin_sender = data.get("is_admin")
+    if is_admin_sender is None:
+        is_admin_sender = await is_admin(callback.from_user.id)
     if not draft_raw:
         await callback.message.edit_text("Нет подготовленного поста.")
         await state.clear()
@@ -4493,6 +4572,26 @@ async def confirm_send(callback: CallbackQuery, state: FSMContext):
     else:
         caption_parts.append(f"Автор: {callback.from_user.id}")
     caption = truncate_caption("\n\n".join(caption_parts))
+    if is_admin_sender:
+        try:
+            scheduled_dt = await schedule_post(post_id)
+        except Exception as e:
+            logger.error("Failed to auto-schedule admin post %s: %s", post_id, e)
+            if deep_task and not deep_task.done():
+                deep_task.cancel()
+            await callback.message.edit_text("Не удалось поставить пост в расписание.", reply_markup=None)
+            await state.clear()
+            return
+        if deep_pending and deep_task:
+            asyncio.create_task(finalize_duplicate_check_for_post(post_id, deep_task))
+        await state.clear()
+        await callback.message.edit_text(
+            "Пост от администратора принят без голосования и поставлен в расписание.",
+            reply_markup=None,
+        )
+        await notify_user_status(post_id, "scheduled", None, scheduled_dt.isoformat())
+        await callback.message.answer("Главное меню:", reply_markup=MAIN_MENU)
+        return
     likes, dislikes = await db.get_vote_counts(post_id)
     markup = build_inline_keyboard(post_id, likes, dislikes, await db.count_ban_votes(user["id"]))
     try:
@@ -4522,7 +4621,7 @@ async def confirm_send(callback: CallbackQuery, state: FSMContext):
         "Пожалуйста, ожидайте решение демократичной администрации о публикации\n"
         f"ID поста - #id{post_id}\n"
         ""
-        "Может ещё что-нибудь скинешь?\n👉👈",
+        "Может ещё что-нибудь скинешь?\n😉",
         # нет
         reply_markup=MAIN_MENU,
     )
@@ -4689,6 +4788,7 @@ async def handle_ban_vote(callback: CallbackQuery):
     votes = await db.toggle_ban_vote(user_row["id"], callback.from_user.id)
     if votes >= BAN_THRESHOLD:
         await db.mark_banned(user_row["id"], True)
+        await db.clear_ban_votes(user_row["id"])
         try:
             await bot.send_message(user_row["tg_id"], "Вы забанены, обратитесь к @p0st_shit")
         except Exception:
@@ -4744,3 +4844,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
