@@ -1,3 +1,10 @@
+
+<img width="800" height="450" alt="image" src="https://github.com/user-attachments/assets/5fafd91e-1dfc-415a-abd4-eed866d06125" />
+
+(чертежей нет)
+
+
+
 # SPERMA: A Peer-to-Admin Content Publishing System  
 
 
